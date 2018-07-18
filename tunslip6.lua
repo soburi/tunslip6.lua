@@ -19,6 +19,7 @@ devmtu = 1500
 
 gettimeofday = require 'posix' . gettimeofday
 posix = require 'posix'
+termio = require 'posix'
 time = require 'posix' . time
 localtime = require 'posix' . localtime
 strftime = require 'posix' . strftime
@@ -30,9 +31,78 @@ tcflush = require 'posix'.tcflush
 tcgetattr = require 'posix'.tcgetattr
 tcsetattr = require 'posix'.tcsetattr
 
-function err(no)
-  io.stderr:write(errno(no))
+fcntl = require 'posix'.fcntl
+
+function err(no, ...)
+  io.stderr:write(string.format(...))
   io.stderr:write("\n")
+  os.exit(no)
+end
+
+function select_baudrate(baud)
+  if baud == 50 then
+    return termio.B115200
+  elseif baud == 75 then
+    return termio.B75
+  elseif baud == 110 then
+    return termio.B110
+  elseif baud == 134 then
+    return termio.B134
+  elseif baud == 150 then
+    return termio.B150
+  elseif baud == 200 then
+    return termio.B200
+  elseif baud == 300 then
+    return termio.B300
+  elseif baud == 600 then
+    return termio.B600
+  elseif baud == 1200 then
+    return termio.B1200
+  elseif baud == 1800 then
+    return termio.B1800
+  elseif baud == 2400 then
+    return termio.B2400
+  elseif baud == 4800 then
+    return termio.B4800
+  elseif baud == 9600 then
+    return termio.B9600
+  elseif baud == 19200 then
+    return termio.B19200
+  elseif baud == 38400 then
+    return termio.B38400
+  elseif baud == 57600 then
+    return termio.B57600
+  elseif baud == 115200 then
+    return termio.B115200
+  elseif baud == 230400 then
+    return termio.B230400
+  elseif baud == 460800 then
+    return termio.B460800
+  elseif baud == 500000 then
+    return termio.B500000
+  elseif baud == 576000 then
+    return termio.B576000
+  elseif baud == 921600 then
+    return termio.B921600
+  elseif baud == 1000000 then
+    return termio.B1000000
+  elseif baud == 1152000 then
+    return termio.B1152000
+  elseif baud == 1500000 then
+    return termio.B1500000
+  elseif baud == 2000000 then
+    return termio.B2000000
+  elseif baud == 2500000 then
+    return termio.B2500000
+  elseif baud == 3000000 then
+    return termio.B3000000
+  elseif baud == 3500000 then
+    return termio.B3500000
+  elseif baud == 4000000 then
+    return termio.B4000000
+  else
+    return 0
+  end
 end
 
 function ssystem(...)
@@ -382,20 +452,17 @@ function tun_to_serial(infd, outfd)
 end
 
 function stty_telos(fd)
-  --struct termios tty
-  --speed_t speed = b_rate
-  --
-  tty = posix.termios
 
   if(tcflush(fd, posix.TCIOFLUSH) == -1) then err(1, "tcflush") end
 
-  if(tcgetattr(fd) == -1) then err(1, "tcgetattr") end
+  tty = tcgetattr(fd)
+  if tty == -1 then err(1, "tcgetattr") end
 
   --cfmakeraw(&tty)
 
   -- /* Nonblocking read. */
-  tty.cc[VTIME] = 0
-  tty.cc[VMIN] = 0
+  tty.cc[termio.VTIME] = 0
+  tty.cc[termio.VMIN] = 0
   if flowcontrol == 0 then
     tty.cflag = bit32.bor(tty.cflag, posix.CRTSCTS)
   else
@@ -629,16 +696,19 @@ function main(argv)
 
   argc = #argv
 
-  prog = argv[0]
+  local getscriptname = function()
+    local str = debug.getinfo(2, "S").source:sub(2)
+    return str:match("^.*/(.*).lua$") or str
+  end
+  prog = getscriptname()
+
   io.stdout:setvbuf('full', 0)
 
   local last_index = 1
   for c, optarg, optind in getopt(argv, "B:HILPhXM:s:t:v::d::a:p:T") do
-    print(c)
-    print(optind)
     last_index = optind
     if c == 'B' then
-      baudrate = atoi(optarg)
+      baudrate = tonumber(optarg)
       break
 
     elseif c == 'H' then
@@ -742,30 +812,33 @@ function main(argv)
     end
   end
   argc = argc - (last_index - 1)
-  for i=0,last_index+1 do
+  for i=1,last_index-1 do
+    print(#argv)
+    print(string.format("remove %s\n", argv[1]))
     table.remove(argv, 1)
   end
 
-  if(#argv ~= 2 and #argv ~= 3) then
+  if #argv ~= 1 and #argv ~= 2 then
     err(1, "usage: %s [-B baudrate] [-H] [-L] [-s siodev] [-t tundev] [-T] [-v verbosity] [-d delay] [-a serveraddress] [-p serverport] ipaddress", prog)
   end
   ipaddr = argv[1]
   io.stderr:write(string.format("argument ipaddr=%s", ipaddr))
 
-  if(baudrate ~= -2) then --/* -2: use default baudrate */
+  if baudrate ~= -2 then --/* -2: use default baudrate */
     b_rate = select_baudrate(baudrate)
-    if(b_rate == 0) then
+    if b_rate == 0 then
       err(1, "unknown baudrate %d", baudrate)
     end
   end
 
-  if(host ~= nil) then
+  print(host)
+  if host ~= nil then
     --struct addrinfo hints, *servinfo, *p
     --int rv
     --char s[INET6_ADDRSTRLEN]
     hints = posix.sys.socket.PosixAddrInfo
 
-    if(port == nil) then
+    if port == nil then
       port = "60001"
     end
 
@@ -807,7 +880,7 @@ function main(argv)
     freeaddrinfo(servinfo)
 
   else
-    if(siodev ~= nil) then
+    if siodev ~= nil then
       slipfd = devopen(siodev, bit32.bor(posix.O_RDWR, posix.O_NONBLOCK))
       if(slipfd == -1) then
         err(1, "can't open siodev ``/dev/%s''", siodev)
@@ -818,7 +891,8 @@ function main(argv)
         siodev = siodevs[i]
         print(siodev)
         slipfd = devopen(siodev,  bit32.bor(posix.O_RDWR, posix.O_NONBLOCK))
-        if(slipfd ~= -1) then
+	print(slipfd)
+        if slipfd ~= nil and slipfd ~= -1 then
           break
         end
       end
