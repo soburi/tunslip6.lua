@@ -18,8 +18,9 @@ tundev = ""
 devmtu = 1500
 
 gettimeofday = require 'posix' . gettimeofday
-time = require 'posix' . time 
-localtime = require 'posix' . localtime 
+posix = require 'posix'
+time = require 'posix' . time
+localtime = require 'posix' . localtime
 strftime = require 'posix' . strftime
 getopt = require 'posix'.getopt
 errno = require 'posix'.errno
@@ -70,7 +71,7 @@ function stamptime()
 end
 
 function is_sensible_string(s, len)
-   for i=1,len do 
+  for i=1,len do
     if s[i] == '\0' or s[i] == '\r' or s[i] == '\n' or s[i] == '\t' then
       -- nothing to do
     elseif s[i] < ' ' or '~' < s[i] then
@@ -89,23 +90,23 @@ function serial_to_tun(inslip, outfd)
   i = 0
   c = ''
 
---#ifdef linux
+  --#ifdef linux
   ret = inslip:read()
   --ret = io.readfread(&c, 1, 1, inslip)
   if ret == -1 or ret == 0 then err(1, "serial_to_tun: read") end
   goto after_fread
---#endif
+  --#endif
 
- ::read_more::
+  ::read_more::
   if(inbufptr >= sizeof(uip.inbuf)) then
     if timestamp ~= 0 then stamptime() end
     io.stderr:write(string.format("*** dropping large %d byte packet\n",inbufptr))
     inbufptr = 0
   end
   ret = inslip:read()
---#ifdef linux
- ::after_fread::
---#endif
+  --#ifdef linux
+  ::after_fread::
+  --#endif
   if ret == -1 then
     err(1, "serial_to_tun: read")
   end
@@ -119,12 +120,15 @@ function serial_to_tun(inslip, outfd)
       if(uip.inbuf[0] == '!') then
         if(uip.inbuf[1] == 'M') then
           -- Read gateway MAC address and autoconfigure tap0 interface
-          char macs[24]
+          macs = {}
+          table.setn(macs, 24)
           pos = 0
           for i=0, 16 do
-            macs[pos++] = uip.inbuf[2 + i]
-            if ((i & 1) == 1 && i < 14) then
-              macs[pos++] = ':'
+            macs[pos] = uip.inbuf[2 + i]
+            pos = pos+1
+            if (bit32.band(i,1) == 1 and i < 14) then
+              macs[pos] = ':'
+              pos = pos+1
             end
           end
 
@@ -135,20 +139,20 @@ function serial_to_tun(inslip, outfd)
           if(timestamp) then stamptime() end
           ssystem("ifconfig %s down", tundev)
           if(timestamp) then stamptime() end
-          ssystem("ifconfig %s hw ether %s", tundev, &macs[6])
+          ssystem("ifconfig %s hw ether %s", tundev, macs[6])
           if(timestamp) then stamptime() end
           ssystem("ifconfig %s up", tundev)
         end
       elseif(uip.inbuf[0] == '?') then
         if(uip.inbuf[1] == 'P') then
           --/* Prefix info requested */
-          struct in6_addr addr
-          int i
-          char *s = strchr(ipaddr, '/')
+          --struct in6_addr addr
+          --int i
+          s = strchr(ipaddr, '/')
           if(s ~= nil) then
-            *s = '\0'
+            s = '\0'
           end
-          inet_pton(AF_INET6, ipaddr, &addr)
+          inet_pton(AF_INET6, ipaddr, addr)
           if(timestamp) then stamptime() end
           fprintf(stderr,"*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
           ipaddr,
@@ -164,7 +168,7 @@ function serial_to_tun(inslip, outfd)
           end
           slip_send(slipfd, SLIP_END)
         end
---#define DEBUG_LINE_MARKER '\r'
+        --#define DEBUG_LINE_MARKER '\r'
       elseif(uip.inbuf[0] == DEBUG_LINE_MARKER) then
         fwrite(uip.inbuf + 1, inbufptr - 1, 1, stdout)
       elseif(is_sensible_string(uip.inbuf, inbufptr)) then
@@ -174,20 +178,20 @@ function serial_to_tun(inslip, outfd)
         end
       else
         if(verbose>2) then
-          if (timestamp) stamptime()
+          if (timestamp) then stamptime() end
           printf("Packet from SLIP of length %d - write TUN\n", inbufptr)
           if verbose>4 ~= 0 then
---#if WIRESHARK_IMPORT_FORMAT
---            printf("0000")
---        for(i = 0; i < inbufptr; i++) printf(" %02x",uip.inbuf[i])
---#else
+            --#if WIRESHARK_IMPORT_FORMAT
+            --            printf("0000")
+            --        for(i = 0; i < inbufptr; i++) printf(" %02x",uip.inbuf[i])
+            --#else
             printf("         ")
             for i=0,inbufptr do
               printf("%02x", uip.inbuf[i])
-              if((i & 3) == 3) then printf(" ") end
-              if((i & 15) == 15) then printf("\n         ") end
+              if bit32.band(i, 3) == 3  then printf(" ") end
+              if bit32.band(i,15) == 15 then printf("\n         ") end
             end
---#endif
+            --#endif
             printf("\n")
           end
         end
@@ -197,9 +201,8 @@ function serial_to_tun(inslip, outfd)
       end
       inbufptr = 0
     end
-    break
   elseif c == SLIP_ESC then
-    if(fread(&c, 1, 1, inslip) ~= 1) then
+    if(fread(c, 1, 1, inslip) ~= 1) then
       clearerr(inslip)
       -- /* Put ESC back and give up! */
       ungetc(SLIP_ESC, inslip)
@@ -208,20 +211,17 @@ function serial_to_tun(inslip, outfd)
 
     if c == SLIP_ESC_END then
       c = SLIP_END
-      break
     elseif c == SLIP_ESC_ESC then
       c = SLIP_ESC
-      break
     elseif c == SLIP_ESC_XON then
       c = XON
-      break
     elseif c == SLIP_ESC_XOFF then
       c = XOFF
-      break
     end
     --/* FALLTHROUGH */
   else
-    uip.inbuf[inbufptr++] = c
+    uip.inbuf[inbufptr] = c
+    inbufptr = inbufptr +1
 
     --/* Echo lines as they are received for verbose=2,3,5+ */
     --/* Echo all printable characters for verbose==4 */
@@ -234,15 +234,13 @@ function serial_to_tun(inslip, outfd)
         end
       end
     elseif verbose==4 then
-      if c == 0 or c == '\r' or c == '\n' or c == '\t' or (c >= ' ' && c <= '~') then
-        fwrite(&c, 1, 1, stdout)
+      if c == 0 or c == '\r' or c == '\n' or c == '\t' or (c >= ' ' and c <= '~') then
+        fwrite(c, 1, 1, stdout)
         if c=='\n' then
           if(timestamp) then stamptime() end
         end
       end
     end
-
-    break
   end
 
   goto read_more
@@ -252,11 +250,9 @@ function slip_send_char(fd, c)
   if c == SLIP_END then
     slip_send(fd, SLIP_ESC)
     slip_send(fd, SLIP_ESC_END)
-    break
   elseif c == SLIP_ESC then
     slip_send(fd, SLIP_ESC)
     slip_send(fd, SLIP_ESC_ESC)
-    break
   elseif c == XON then
     if(flowcontrol_xonxoff) then
       slip_send(fd, SLIP_ESC)
@@ -264,7 +260,6 @@ function slip_send_char(fd, c)
     else
       slip_send(fd, c)
     end
-    break
   elseif c == XOFF then
     if(flowcontrol_xonxoff) then
       slip_send(fd, SLIP_ESC)
@@ -272,10 +267,8 @@ function slip_send_char(fd, c)
     else
       slip_send(fd, c)
     end
-    break
   else
     slip_send(fd, c)
-    break
   end
 end
 
@@ -285,7 +278,7 @@ function slip_send(fd, c)
     err(1, "slip_send overflow")
   end
   slip_buf[slip_end] = c
-  slip_end++
+  slip_end = slip_end + 1
 end
 
 function slip_empty()
@@ -302,11 +295,12 @@ function slip_flushbuf(fd)
   if(n == -1 and errno ~= EAGAIN) then
     err(1, "slip_flushbuf write failed")
   elseif(n == -1) then
-    PROGRESS("Q");		/* Outqueueis full! */
+    PROGRESS("Q") --		/* Outqueueis full! */
   else
-    slip_begin += n
+    slip_begin = slip_begin + n
     if(slip_begin == slip_end) then
-      slip_begin = slip_end = 0
+      slip_begin = 0
+      slip_end = 0
     end
   end
 end
@@ -314,23 +308,23 @@ end
 
 function write_to_serial(outfd, inbuf)
   len = #inbuf
-  int i
+  i = 0
 
   if(verbose>2) then
     if (timestamp) then stamptime() end
     printf("Packet from TUN of length %d - write SLIP\n", len)
     if (verbose>4) then
---#if WIRESHARK_IMPORT_FORMAT
---      printf("0000")
---	  for(i = 0; i < len; i++) printf(" %02x", p[i])
---#else
+      --#if WIRESHARK_IMPORT_FORMAT
+      --      printf("0000")
+      --	  for(i = 0; i < len; i++) printf(" %02x", p[i])
+      --#else
       printf("         ")
       for i=0, len do
         printf("%02x", p[i])
-        if((i & 3) == 3) then printf(" ") end
-        if((i & 15) == 15) then printf("\n         ") end
+        if bit32.band(i, 3) == 3  then printf(" ") end
+        if bit32.band(i,15) == 15 then printf("\n         ") end
       end
---#endif
+      --#endif
       printf("\n")
     end
   end
@@ -340,7 +334,7 @@ function write_to_serial(outfd, inbuf)
   -- */
   --/* slip_send(outfd, SLIP_END); */
 
-  --for(i = 0; i < len; i++) 
+  --for(i = 0; i < len; i++)
   for i=0, len do
     if p[i] == SLIP_END then
       slip_send(outfd, SLIP_ESC)
@@ -403,34 +397,34 @@ function stty_telos(fd)
   tty.cc[VTIME] = 0
   tty.cc[VMIN] = 0
   if flowcontrol == 0 then
-    tty.cflag = bit.bor(tty.cflag, posix.CRTSCTS)
+    tty.cflag = bit32.bor(tty.cflag, posix.CRTSCTS)
   else
-    tty.cflag = bit.bor(tty.cflag, bit.bnot(posix.CRTSCTS))
+    tty.cflag = bit32.bor(tty.cflag, bit32.bnot(posix.CRTSCTS))
   end
-  tty.iflag = bit.band(tty.iflag, bit.bnot(posix.IXON))
+  tty.iflag = bit32.band(tty.iflag, bit32.bnot(posix.IXON))
   if(flowcontrol_xonxoff)  then
-    tty.iflag = bit.bor(tty.iflag, posix.IXOFF , posix.IXANY)
+    tty.iflag = bit32.bor(tty.iflag, posix.IXOFF , posix.IXANY)
   else
-    tty.iflag = bit.bor(tty.iflag, bit.band(bit.bnot(posix.IXOFF), bit.bnot(posix.IXANY)))
+    tty.iflag = bit32.bor(tty.iflag, bit32.band(bit32.bnot(posix.IXOFF), bit32.bnot(posix.IXANY)))
   end
-  tty.cflag = bit.band(tty.cflag, bit.bnot(posix.HUPCL))
-  tty.cflag = bit.band(tty.cflag, bit.bnot(posix.CLOCAL))
+  tty.cflag = bit32.band(tty.cflag, bit32.bnot(posix.HUPCL))
+  tty.cflag = bit32.band(tty.cflag, bit32.bnot(posix.CLOCAL))
 
   --cfsetispeed(&tty, speed)
   --cfsetospeed(&tty, speed)
 
   if(tcsetattr(fd, posix.TCSAFLUSH, tty) == -1) then err(1, "tcsetattr") end
 
---#if 1
+  --#if 1
   --/* Nonblocking read and write. */
   if(fcntl(fd, posix.F_SETFL, posix.O_NONBLOCK) == -1) then err(1, "fcntl") end
 
-  tty.cflag = bit.bor(tty.cflag, posix.CLOCAL)
+  tty.cflag = bit32.bor(tty.cflag, posix.CLOCAL)
   if(tcsetattr(fd, posix.TCSAFLUSH, tty) == -1) then err(1, "tcsetattr") end
 
   --i = TIOCM_DTR
   --if(ioctl(fd, TIOCMBIS, i) == -1) then err(1, "ioctl") end
---#endif
+  --#endif
 
   usleep(10*1000)		--/* Wait for hardware 10ms. */
 
@@ -440,35 +434,36 @@ end
 
 
 function devopen(dev, flags)
-  open("/dev/" .. dev, flags)
+  return open("/dev/" .. dev, flags)
 end
 
 function tun_alloc(dev, tap)
-  struct ifreq ifr
-  fd = 0
+  -- struct ifreq ifr
   err = 0
 
-  if( (fd = open("/dev/net/tun", O_RDWR)) < 0 ) then
+  fd = open("/dev/net/tun", O_RDWR)
+  if fd < 0 then
     perror("can not open /dev/net/tun")
     return -1
   end
 
-  memset(&ifr, 0, sizeof(ifr))
+  memset(ifr, 0, sizeof(ifr))
 
   --/* Flags: IFF_TUN   - TUN device (no Ethernet headers)
   -- *        IFF_TAP   - TAP device
   -- *
   -- *        IFF_NO_PI - Do not provide packet information
   -- */
-  ifr.ifr_flags = bit.bor((tap and IFF_TAP or IFF_TUN) , IFF_NO_PI)
-  if(*dev != 0) then
+  ifr.ifr_flags = bit32.bor((tap and IFF_TAP or IFF_TUN) , IFF_NO_PI)
+  if dev ~= 0 then
     strncpy(ifr.ifr_name, dev, IFNAMSIZ)
   end
 
-  if((err = ioctl(fd, TUNSETIFF, (void *) &ifr)) < 0 ) then
+  err = ioctl(fd, TUNSETIFF, ifr)
+  if err < 0 then
     close(fd)
     fprintf(stderr, "can not tunsetiff to %s (flags=%08x): %s\n", dev, ifr.ifr_flags,
-            strerror(errno))
+    strerror(errno))
     return err
   end
 
@@ -479,28 +474,28 @@ end
 
 
 function cleanup(void)
---#ifndef __APPLE__
+  --#ifndef __APPLE__
   if (timestamp) then stamptime() end
   ssystem("ifconfig %s down", tundev)
---#ifndef linux
---  ssystem("sysctl -w net.ipv6.conf.all.forwarding=1")
---#endif
---  /* ssystem("arp -d %s", ipaddr); */
+  --#ifndef linux
+  --  ssystem("sysctl -w net.ipv6.conf.all.forwarding=1")
+  --#endif
+  --  /* ssystem("arp -d %s", ipaddr); */
   if (timestamp) then stamptime() end
   ssystem("netstat -nr | awk '{ if ($2 == \"%s\") print \"route delete -net \"$1; }' | sh", tundev)
---#else
---  {
-    itfaddr = strdup(ipaddr)
-    prefix = index(itfaddr, '/')
-    if (timestamp) then stamptime() end
-    ssystem("ifconfig %s inet6 %s remove", tundev, ipaddr)
-    if (timestamp) then stamptime() end
-    ssystem("ifconfig %s down", tundev)
-    if ( prefix != NULL ) then *prefix = '\0' end
-    ssystem("route delete -inet6 %s", itfaddr)
-    free(itfaddr)
---  }
---#endif
+  --#else
+  --  {
+  itfaddr = strdup(ipaddr)
+  prefix = index(itfaddr, '/')
+  if (timestamp) then stamptime() end
+  ssystem("ifconfig %s inet6 %s remove", tundev, ipaddr)
+  if (timestamp) then stamptime() end
+  ssystem("ifconfig %s down", tundev)
+  if ( prefix ~= NULL ) then prefix = '\0' end
+  ssystem("route delete -inet6 %s", itfaddr)
+  free(itfaddr)
+  --  }
+  --#endif
 end
 
 function sigcleanup(signo)
@@ -516,95 +511,98 @@ function sigalarm(signo)
 end
 
 function sigalarm_reset()
---#ifdef linux
---#define TIMEOUT (997*1000)
+  --#ifdef linux
+  --#define TIMEOUT (997*1000)
   local TIMEOUT = (997*1000)
---#else
---#define TIMEOUT (2451*1000)
---#endif
+  --#else
+  --#define TIMEOUT (2451*1000)
+  --#endif
   ualarm(TIMEOUT, TIMEOUT)
   got_sigalarm = 0
 end
 
 function ifconf(tundev, ipaddr)
---#ifdef linux
+  --#ifdef linux
   if (timestamp) then stamptime() end
   ssystem("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu)
   if (timestamp) then stamptime() end
   ssystem("ifconfig %s add %s", tundev, ipaddr)
 
---/* radvd needs a link local address for routing */
---#if 0
---/* fe80::1/64 is good enough */
---  ssystem("ifconfig %s add fe80::1/64", tundev)
---#elif 1
---/* Generate a link local address a la sixxs/aiccu */
---/* First a full parse, stripping off the prefix length */
---  {
-    char lladdr[40]
-    char c, *ptr=(char *)ipaddr
-    uint16_t digit,ai,a[8],cc,scc,i
-    for(ai=0; ai<8; ai++) do
-      a[ai]=0
-    end
-    ai=0
-    cc=scc=0
-    while(c=*ptr++) do
-      if(c=='/') break
-      if(c==':') then
-        if(cc) then
-          scc = ai
-        end
-        cc = 1
-        if(++ai>7) then break end
-      else
-        cc=0
-        digit = c-'0'
-        if (digit > 9) then
-          digit = 10 + (c & 0xdf) - 'A'
-        end
-        a[ai] = (a[ai] << 4) + digit
+  --/* radvd needs a link local address for routing */
+  --#if 0
+  --/* fe80::1/64 is good enough */
+  --  ssystem("ifconfig %s add fe80::1/64", tundev)
+  --#elif 1
+  --/* Generate a link local address a la sixxs/aiccu */
+  --/* First a full parse, stripping off the prefix length */
+  --  {
+  --char lladdr[40]
+  --char c, *ptr=(char *)ipaddr
+  --uint16_t digit,ai,a[8],cc,scc,i
+  for ai=0, 8 do
+    a[ai]=0
+  end
+  ai=0
+  cc=0
+  scc=0
+  --while (c=*ptr++) do
+  while true do
+    if(c=='/') then break end
+    if(c==':') then
+      if(cc) then
+        scc = ai
       end
-    end
-    -- /* Get # elided and shift what's after to the end */
-    cc=8-ai
-    for(i=0,<cc) do
-      if ((8-i-cc) <= scc) then
-        a[7-i] = 0
-      else
-        a[7-i] = a[8-i-cc]
-        a[8-i-cc]=0
+      cc = 1
+      ai = ai + 1
+      if(ai>7) then break end
+    else
+      cc=0
+      digit = c-'0'
+      if (digit > 9) then
+        digit = 10 + bit32.band(c,0xdf) - 'A'
       end
+      --?a[ai] = (a[ai] << 4) + digit
     end
-    sprintf(lladdr,"fe80::%x:%x:%x:%x",a[1]&0xfefd,a[2],a[3],a[7])
-    if (timestamp) then stamptime() end
-    ssystem("ifconfig %s add %s/64", tundev, lladdr)
---  }
---#endif /* link local */
---#elif defined(__APPLE__)
---  {
---	char * itfaddr = strdup(ipaddr)
---	char * prefix = index(itfaddr, '/')
---	if ( prefix != NULL ) {
---		*prefix = '\0'
---		prefix++
---	} else {
---		prefix = "64"
---	}
---    if (timestamp) stamptime()
---    ssystem("ifconfig %s inet6 mtu %d up", tundev, devmtu)
---    if (timestamp) stamptime()
---    ssystem("ifconfig %s inet6 %s add", tundev, ipaddr )
---    if (timestamp) stamptime()
---    ssystem("sysctl -w net.inet6.ip6.forwarding=1")
---    free(itfaddr)
---  }
---#else
---  if (timestamp) stamptime()
---  ssystem("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu)
---  if (timestamp) stamptime()
---  ssystem("sysctl -w net.inet.ip.forwarding=1")
---#endif /* !linux */
+  end
+  -- /* Get # elided and shift what's after to the end */
+  cc=8-ai
+  for i=0, cc do
+    if ((8-i-cc) <= scc) then
+      a[7-i] = 0
+    else
+      a[7-i] = a[8-i-cc]
+      a[8-i-cc]=0
+    end
+  end
+  sprintf(lladdr,"fe80::%x:%x:%x:%x",bit32.band(a[1],0xfefd),a[2],a[3],a[7])
+  if (timestamp) then stamptime() end
+  ssystem("ifconfig %s add %s/64", tundev, lladdr)
+  --  }
+  --#endif /* link local */
+  --#elif defined(__APPLE__)
+  --  {
+  --	char * itfaddr = strdup(ipaddr)
+  --	char * prefix = index(itfaddr, '/')
+  --	if ( prefix != NULL ) {
+  --		*prefix = '\0'
+  --		prefix++
+  --	} else {
+  --		prefix = "64"
+  --	}
+  --    if (timestamp) stamptime()
+  --    ssystem("ifconfig %s inet6 mtu %d up", tundev, devmtu)
+  --    if (timestamp) stamptime()
+  --    ssystem("ifconfig %s inet6 %s add", tundev, ipaddr )
+  --    if (timestamp) stamptime()
+  --    ssystem("sysctl -w net.inet6.ip6.forwarding=1")
+  --    free(itfaddr)
+  --  }
+  --#else
+  --  if (timestamp) stamptime()
+  --  ssystem("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu)
+  --  if (timestamp) stamptime()
+  --  ssystem("sysctl -w net.inet.ip.forwarding=1")
+  --#endif /* !linux */
 
   if (timestamp) then stamptime() end
   ssystem("ifconfig %s\n", tundev)
@@ -668,7 +666,7 @@ function main(argv)
     elseif c == 's' then
       if(strncmp("/dev/", optarg, 5) == 0) then
         siodev = optarg + 5
-      else 
+      else
         siodev = optarg
       end
       break
@@ -708,37 +706,37 @@ function main(argv)
       tap = 1
       break
 
-    --elseif c == '?' or c == 'h' 
+      --elseif c == '?' or c == 'h'
     else
-io.stderr:write(string.format("usage:  %s [options] ipaddress\n", prog))
-io.stderr:write("example: tunslip6 -L -v2 -s ttyUSB1 fd00::1/64\n")
-io.stderr:write("Options are:\n")
---#ifndef __APPLE__
---io.stderr:write(" -B baudrate    9600,19200,38400,57600,115200 (default),230400,460800,921600\n")
---#else
-io.stderr:write(" -B baudrate    9600,19200,38400,57600,115200 (default),230400\n")
----#endif
-io.stderr:write(" -H             Hardware CTS/RTS flow control (default disabled)\n")
-io.stderr:write(" -I             Inquire IP address\n")
-io.stderr:write(" -X             Software XON/XOFF flow control (default disabled)\n")
-io.stderr:write(" -L             Log output format (adds time stamps)\n")
-io.stderr:write(" -s siodev      Serial device (default /dev/ttyUSB0)\n")
-io.stderr:write(" -M             Interface MTU (default and min: 1280)\n")
-io.stderr:write(" -T             Make tap interface (default is tun interface)\n")
-io.stderr:write(" -t tundev      Name of interface (default tap0 or tun0)\n")
-io.stderr:write(" -v[level]      Verbosity level\n")
-io.stderr:write("    -v0         No messages\n")
-io.stderr:write("    -v1         Encapsulated SLIP debug messages (default)\n")
-io.stderr:write("    -v2         Printable strings after they are received\n")
-io.stderr:write("    -v3         Printable strings and SLIP packet notifications\n")
-io.stderr:write("    -v4         All printable characters as they are received\n")
-io.stderr:write("    -v5         All SLIP packets in hex\n")
-io.stderr:write("    -v          Equivalent to -v3\n")
-io.stderr:write(" -d[basedelay]  Minimum delay between outgoing SLIP packets.\n")
-io.stderr:write("                Actual delay is basedelay*(#6LowPAN fragments) milliseconds.\n")
-io.stderr:write("                -d is equivalent to -d10.\n")
-io.stderr:write(" -a serveraddr  \n")
-io.stderr:write(" -p serverport  \n")
+      io.stderr:write(string.format("usage:  %s [options] ipaddress\n", prog))
+      io.stderr:write("example: tunslip6 -L -v2 -s ttyUSB1 fd00::1/64\n")
+      io.stderr:write("Options are:\n")
+      --#ifndef __APPLE__
+      --io.stderr:write(" -B baudrate    9600,19200,38400,57600,115200 (default),230400,460800,921600\n")
+      --#else
+      io.stderr:write(" -B baudrate    9600,19200,38400,57600,115200 (default),230400\n")
+      ---#endif
+      io.stderr:write(" -H             Hardware CTS/RTS flow control (default disabled)\n")
+      io.stderr:write(" -I             Inquire IP address\n")
+      io.stderr:write(" -X             Software XON/XOFF flow control (default disabled)\n")
+      io.stderr:write(" -L             Log output format (adds time stamps)\n")
+      io.stderr:write(" -s siodev      Serial device (default /dev/ttyUSB0)\n")
+      io.stderr:write(" -M             Interface MTU (default and min: 1280)\n")
+      io.stderr:write(" -T             Make tap interface (default is tun interface)\n")
+      io.stderr:write(" -t tundev      Name of interface (default tap0 or tun0)\n")
+      io.stderr:write(" -v[level]      Verbosity level\n")
+      io.stderr:write("    -v0         No messages\n")
+      io.stderr:write("    -v1         Encapsulated SLIP debug messages (default)\n")
+      io.stderr:write("    -v2         Printable strings after they are received\n")
+      io.stderr:write("    -v3         Printable strings and SLIP packet notifications\n")
+      io.stderr:write("    -v4         All printable characters as they are received\n")
+      io.stderr:write("    -v5         All SLIP packets in hex\n")
+      io.stderr:write("    -v          Equivalent to -v3\n")
+      io.stderr:write(" -d[basedelay]  Minimum delay between outgoing SLIP packets.\n")
+      io.stderr:write("                Actual delay is basedelay*(#6LowPAN fragments) milliseconds.\n")
+      io.stderr:write("                -d is equivalent to -d10.\n")
+      io.stderr:write(" -a serveraddr  \n")
+      io.stderr:write(" -p serverport  \n")
       os.exit(1)
       break
     end
@@ -775,23 +773,24 @@ io.stderr:write(" -p serverport  \n")
     hints.family = AF_UNSPEC
     hints.socktype = SOCK_STREAM
 
-    if((rv = getaddrinfo(host, port, hints)) ~= 0) then
+    rv = getaddrinfo(host, port, hints)
+    if rv ~= 0 then
       err(1, string.format("getaddrinfo: %s", gai_strerror(rv)))
     end
 
     --/* loop through all the results and connect to the first we can */
     --for(p = servinfo; p ~= nil; p = p->ai_next) {
-      --if((slipfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) then
-      --  perror("client: socket")
-      --  continue
-      --end
+    --if((slipfd = socket(p->ai_family, p->ai_socktype, p->ai_protocol)) == -1) then
+    --  perror("client: socket")
+    --  continue
+    --end
 
-      --if(connect(slipfd, p->ai_addr, p->ai_addrlen) == -1) then
-      --  close(slipfd)
-      --  perror("client: connect")
-      --  continue
-      --end
-      --break
+    --if(connect(slipfd, p->ai_addr, p->ai_addrlen) == -1) then
+    --  close(slipfd)
+    --  perror("client: connect")
+    --  continue
+    --end
+    --break
     --}
 
     if p == nil then
@@ -809,7 +808,7 @@ io.stderr:write(" -p serverport  \n")
 
   else
     if(siodev ~= nil) then
-        slipfd = devopen(siodev, bit.bor(posix.O_RDWR, posix.O_NONBLOCK))
+      slipfd = devopen(siodev, bit32.bor(posix.O_RDWR, posix.O_NONBLOCK))
       if(slipfd == -1) then
         err(1, "can't open siodev ``/dev/%s''", siodev)
       end
@@ -818,7 +817,7 @@ io.stderr:write(" -p serverport  \n")
       for i=1, 3 do
         siodev = siodevs[i]
         print(siodev)
-        slipfd = devopen(siodev,  bit.bor(posix.O_RDWR, posix.O_NONBLOCK))
+        slipfd = devopen(siodev,  bit32.bor(posix.O_RDWR, posix.O_NONBLOCK))
         if(slipfd ~= -1) then
           break
         end
@@ -885,29 +884,29 @@ io.stderr:write(" -p serverport  \n")
       --end
 
       --if(FD_ISSET(slipfd, &wset)) then
-        slip_flushbuf(slipfd)
+      slip_flushbuf(slipfd)
       --  if(ipa_enable) then sigalarm_reset() end
       --end
 
       --/* Optional delay between outgoing packets */
       --/* Base delay times number of 6lowpan fragments to be sent */
       if(delaymsec) then
-        tv = gettimeofday() 
+        tv = gettimeofday()
         dmsec=(tv.sec-delaystartsec)*1000+tv.usec/1000-delaystartmsec
         if(dmsec<0) then delaymsec=0 end
         if(dmsec>delaymsec) then delaymsec=0 end
       end
       if delaymsec==0 then
         --if(slip_empty() && FD_ISSET(tunfd, &rset)) then
-          size=tun_to_serial(tunfd, slipfd)
-          slip_flushbuf(slipfd)
-          if(ipa_enable) then sigalarm_reset() end
-          if(basedelay) then
-            tv = gettimeofday() 
-            delaymsec=basedelay
-            delaystartsec =tv.sec
-            delaystartmsec=tv.usec/1000
-          end
+        size=tun_to_serial(tunfd, slipfd)
+        slip_flushbuf(slipfd)
+        if(ipa_enable) then sigalarm_reset() end
+        if(basedelay) then
+          tv = gettimeofday()
+          delaymsec=basedelay
+          delaystartsec =tv.sec
+          delaystartmsec=tv.usec/1000
+        end
         --end
       end
     end
@@ -918,3 +917,4 @@ end
 -- stamptime()
 --
 main(arg)
+
