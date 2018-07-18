@@ -493,7 +493,7 @@ function stty_telos(fd)
   --if(ioctl(fd, TIOCMBIS, i) == -1) then err(1, "ioctl") end
   --#endif
 
-  usleep(10*1000)		--/* Wait for hardware 10ms. */
+  --usleep(10*1000)		--/* Wait for hardware 10ms. */
 
   --/* Flush input and output buffers. */
   if(tcflush(fd, TCIOFLUSH) == -1) then err(1, "tcflush") end
