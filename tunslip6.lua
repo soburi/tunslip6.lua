@@ -26,12 +26,19 @@ strftime = require 'posix' . strftime
 getopt = require 'posix'.getopt
 errno = require 'posix'.errno
 open = require 'posix'.open
+fdopen = require 'posix'.fdopen
+signal = require 'posix'.signal
 
 tcflush = require 'posix'.tcflush
 tcgetattr = require 'posix'.tcgetattr
 tcsetattr = require 'posix'.tcsetattr
 
 fcntl = require 'posix'.fcntl
+
+if bit32 == nil then
+  bit32 = bit
+end
+
 
 function err(no, ...)
   io.stderr:write(string.format(...))
@@ -105,10 +112,11 @@ function select_baudrate(baud)
   end
 end
 
-function ssystem(...)
-  print(...)
+function ssystem(cmdfmt, ...)
+  cmd = string.format(cmdfmt, ...)
+  print(cmd)
   io.stdout:flush()
-  return os.execute(...)
+  return os.execute(cmd)
 end
 
 function get_in_addr(sa)
@@ -316,6 +324,21 @@ function serial_to_tun(inslip, outfd)
   goto read_more
 end
 
+local function newArray(size)
+    local t = {}
+    setmetatable(t, {
+           __index = function (_, i) 
+               return i >= 1 and i <= size and i or nil end})
+    return t
+end
+
+slip_buf = {}
+for i=0, 2000 do
+  slip_buf[i] = '\0'
+end
+slip_end = 0
+slip_begin = 0
+
 function slip_send_char(fd, c)
   if c == SLIP_END then
     slip_send(fd, SLIP_ESC)
@@ -344,7 +367,8 @@ end
 
 
 function slip_send(fd, c)
-  if(slip_end >= sizeof(slip_buf)) then
+  print(#slip_buf)
+  if slip_end >= #slip_buf then
     err(1, "slip_send overflow")
   end
   slip_buf[slip_end] = c
@@ -480,14 +504,14 @@ function stty_telos(fd)
   --cfsetispeed(&tty, speed)
   --cfsetospeed(&tty, speed)
 
-  if(tcsetattr(fd, posix.TCSAFLUSH, tty) == -1) then err(1, "tcsetattr") end
+  if tcsetattr(fd, posix.TCSAFLUSH, tty) == -1 then err(1, "tcsetattr") end
 
   --#if 1
   --/* Nonblocking read and write. */
-  if(fcntl(fd, posix.F_SETFL, posix.O_NONBLOCK) == -1) then err(1, "fcntl") end
+  if fcntl(fd, posix.F_SETFL, posix.O_NONBLOCK) == -1 then err(1, "fcntl") end
 
   tty.cflag = bit32.bor(tty.cflag, posix.CLOCAL)
-  if(tcsetattr(fd, posix.TCSAFLUSH, tty) == -1) then err(1, "tcsetattr") end
+  if tcsetattr(fd, posix.TCSAFLUSH, tty) == -1 then err(1, "tcsetattr") end
 
   --i = TIOCM_DTR
   --if(ioctl(fd, TIOCMBIS, i) == -1) then err(1, "ioctl") end
@@ -496,7 +520,7 @@ function stty_telos(fd)
   --usleep(10*1000)		--/* Wait for hardware 10ms. */
 
   --/* Flush input and output buffers. */
-  if(tcflush(fd, TCIOFLUSH) == -1) then err(1, "tcflush") end
+  if tcflush(fd, posix.TCIOFLUSH) == -1 then err(1, "tcflush") end
 end
 
 
@@ -508,7 +532,7 @@ function tun_alloc(dev, tap)
   -- struct ifreq ifr
   err = 0
 
-  fd = open("/dev/net/tun", O_RDWR)
+  fd = open("/dev/net/tun", posix.O_RDWR)
   if fd < 0 then
     perror("can not open /dev/net/tun")
     return -1
@@ -606,10 +630,12 @@ function ifconf(tundev, ipaddr)
   --char lladdr[40]
   --char c, *ptr=(char *)ipaddr
   --uint16_t digit,ai,a[8],cc,scc,i
-  for ai=0, 8 do
+  a = { 0, 0, 0, 0, 0, 0, 0, 0 }
+  for ai=1, 8 do
     a[ai]=0
   end
-  ai=0
+  digit = 0
+  ai=1
   cc=0
   scc=0
   --while (c=*ptr++) do
@@ -628,7 +654,7 @@ function ifconf(tundev, ipaddr)
       if (digit > 9) then
         digit = 10 + bit32.band(c,0xdf) - 'A'
       end
-      --?a[ai] = (a[ai] << 4) + digit
+      a[ai] = bit32.lshift(a[ai], 4) + digit
     end
   end
   -- /* Get # elided and shift what's after to the end */
@@ -905,19 +931,19 @@ function main(argv)
     stty_telos(slipfd)
   end
   slip_send(slipfd, SLIP_END)
-  inslip = fdopen(slipfd, "r")
-  if(inslip == nil) then err(1, "main: fdopen") end
+  --? inslip = fdopen(slipfd, "r")
+  --? if(inslip == nil) then err(1, "main: fdopen") end
 
-  tunfd = tun_alloc(tundev, tap)
-  if(tunfd == -1) then err(1, "main: open /dev/tun") end
+  --? tunfd = tun_alloc(tundev, tap)
+  --? if(tunfd == -1) then err(1, "main: open /dev/tun") end
   if timestamp ~= 0 then stamptime() end
   io.stderr:write(string.format("opened %s device ``/dev/%s''\n", tap and "tap" or "tun", tundev))
 
-  atexit(cleanup)
-  signal(SIGHUP, sigcleanup)
-  signal(SIGTERM, sigcleanup)
-  signal(SIGINT, sigcleanup)
-  signal(SIGALRM, sigalarm)
+  --? atexit(cleanup)
+  signal(posix.SIGHUP, sigcleanup)
+  signal(posix.SIGTERM, sigcleanup)
+  signal(posix.SIGINT, sigcleanup)
+  signal(posix.SIGALRM, sigalarm)
   ifconf(tundev, ipaddr)
 
   while true do
