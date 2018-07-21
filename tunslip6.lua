@@ -515,8 +515,8 @@ function stty_telos(fd)
   tty.cflags = 0
   tty.cc[termio.VTIME] = 0
   tty.cc[termio.VMIN] = 0
-  if flowcontrol == 0 then
-    --? tty.cflag = bit32.bor(tty.cflag, termio.CRTSCTS)
+  if flowcontrol then
+    tty.cflag = bit32.bor(tty.cflag, termio.CRTSCTS)
   else
     tty.cflag = bit32.bor(tty.cflag, bit32.bnot(posix.CRTSCTS))
   end
