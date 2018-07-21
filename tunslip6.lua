@@ -8,18 +8,18 @@ startsec = 0
 startmsec = 0
 delaystartsec = 0
 delaystartmsec = 0
-timestamp = 0
-flowcontrol=0
-showprogress=0
-flowcontrol_xonxoff=0
+timestamp = false
+flowcontrol=false
+showprogress=false
+flowcontrol_xonxoff=false
 
 tundev = ""
 
 devmtu = 1500
 
-print('start')
-
 ltun = require 'ltun'
+
+socket = require 'socket'
 
 posix = require 'posix'
 termio = require 'posix.termio'
@@ -39,6 +39,8 @@ tcgetattr = require 'posix'.tcgetattr
 tcsetattr = require 'posix'.tcsetattr
 
 fcntl = require 'posix'.fcntl
+
+poll = require 'posix.poll'.poll
 
 if bit32 == nil then
   bit32 = require 'bit32'
@@ -131,8 +133,9 @@ end
 
 function ssystem(cmdfmt, ...)
   cmd = string.format(cmdfmt, ...)
-  print(cmd)
-  io.stdout:flush()
+  io.stderr:write(cmd)
+  io.stderr:write("\n")
+  io.stderr:flush()
   return os.execute(cmd)
 end
 
@@ -195,7 +198,7 @@ function serial_to_tun(inslip, outfd)
   -- ::read_more::
   local read_more = function()
     if(inbufptr >= sizeof(uip.inbuf)) then
-      if timestamp ~= 0 then stamptime() end
+      if timestamp then stamptime() end
       io.stderr:write(string.format("*** dropping large %d byte packet\n",inbufptr))
       inbufptr = 0
     end
@@ -234,11 +237,11 @@ function serial_to_tun(inslip, outfd)
             macs[pos] = '\0'
             -- printf("*** Gateway's MAC address: %s\n", macs)
             fprintf(stderr,"*** Gateway's MAC address: %s\n", macs)
-            if(timestamp) then stamptime() end
+            if timestamp then stamptime() end
             ssystem("ifconfig %s down", tundev)
-            if(timestamp) then stamptime() end
+            if timestamp then stamptime() end
             ssystem("ifconfig %s hw ether %s", tundev, macs[6])
-            if(timestamp) then stamptime() end
+            if timestamp then stamptime() end
             ssystem("ifconfig %s up", tundev)
           end
         elseif(uip.inbuf[0] == '?') then
@@ -251,7 +254,7 @@ function serial_to_tun(inslip, outfd)
               s = '\0'
             end
             inet_pton(AF_INET6, ipaddr, addr)
-            if(timestamp) then stamptime() end
+            if timestamp then stamptime() end
             fprintf(stderr,"*** Address:%s => %02x%02x:%02x%02x:%02x%02x:%02x%02x\n",
             ipaddr,
             addr.s6_addr[0], addr.s6_addr[1],
@@ -271,12 +274,12 @@ function serial_to_tun(inslip, outfd)
           fwrite(uip.inbuf + 1, inbufptr - 1, 1, stdout)
         elseif(is_sensible_string(uip.inbuf, inbufptr)) then
           if(verbose==1) then --  /* strings already echoed below for verbose>1 */
-            if timestamp ~= 0 then stamptime() end
+            if timestamp then stamptime() end
             fwrite(uip.inbuf, inbufptr, 1, stdout)
           end
         else
           if(verbose>2) then
-            if (timestamp) then stamptime() end
+            if timestamp then stamptime() end
             printf("Packet from SLIP of length %d - write TUN\n", inbufptr)
             if verbose>4 ~= 0 then
               --#if WIRESHARK_IMPORT_FORMAT
@@ -335,7 +338,7 @@ function serial_to_tun(inslip, outfd)
         if c == 0 or c == '\r' or c == '\n' or c == '\t' or (c >= ' ' and c <= '~') then
           fwrite(c, 1, 1, stdout)
           if c=='\n' then
-            if(timestamp) then stamptime() end
+            if timestamp then stamptime() end
           end
         end
       end
@@ -426,10 +429,10 @@ function write_to_serial(outfd, inbuf)
   len = #inbuf
   i = 0
 
-  if(verbose>2) then
-    if (timestamp) then stamptime() end
+  if verbose> 2 then
+    if timestamp then stamptime() end
     printf("Packet from TUN of length %d - write SLIP\n", len)
-    if (verbose>4) then
+    if verbose > 4 then
       --#if WIRESHARK_IMPORT_FORMAT
       --      printf("0000")
       --    for(i = 0; i < len; i++) printf(" %02x", p[i])
@@ -592,23 +595,23 @@ end
 
 function cleanup(void)
   --#ifndef __APPLE__
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("ifconfig %s down", tundev)
   --#ifndef linux
   --  ssystem("sysctl -w net.ipv6.conf.all.forwarding=1")
   --#endif
   --  /* ssystem("arp -d %s", ipaddr); */
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("netstat -nr | awk '{ if ($2 == \"%s\") print \"route delete -net \"$1; }' | sh", tundev)
   --#else
   --  {
   itfaddr = strdup(ipaddr)
   prefix = index(itfaddr, '/')
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("ifconfig %s inet6 %s remove", tundev, ipaddr)
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("ifconfig %s down", tundev)
-  if ( prefix ~= NULL ) then prefix = '\0' end
+  if prefix ~= NULL then prefix = '\0' end
   ssystem("route delete -inet6 %s", itfaddr)
   free(itfaddr)
   --  }
@@ -640,9 +643,9 @@ end
 
 function ifconf(tundev, ipaddr)
   --#ifdef linux
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("ifconfig %s inet `hostname` mtu %d up", tundev, devmtu)
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("ifconfig %s add %s", tundev, ipaddr)
 
   --/* radvd needs a link local address for routing */
@@ -657,7 +660,7 @@ function ifconf(tundev, ipaddr)
   --char c, *ptr=(char *)ipaddr
   --uint16_t digit,ai,a[8],cc,scc,i
   ptr = 1
-  c = '\0'
+  c = 0
   a = { 0, 0, 0, 0, 0, 0, 0, 0 }
   for ai=1, 8 do
     a[ai]=0
@@ -667,37 +670,40 @@ function ifconf(tundev, ipaddr)
   cc=0
   scc=0
   --while (c=*ptr++) do
-  while c == ipaddr.sub(ptr,ptr) and ptr <= string.len(ipaddr) do
+  while ptr <= string.len(ipaddr) do
+    c = string.byte(string.sub(ipaddr, ptr,ptr), 1)
+    if c == 0 then break end
     ptr = ptr+1
-    if c=='/' then break end
-    if c==':' then
-      if(cc) then
+    if c == string.byte('/',1) then break end
+    if c == string.byte(':',1) then
+      if cc ~= 0 then
         scc = ai
       end
       cc = 1
       ai = ai + 1
-      if ai>7 then break end
+      if ai > 8 then break end
     else
       cc=0
-      digit = c-'0'
-      if (digit > 9) then
-        digit = 10 + bit32.band(c,0xdf) - 'A'
+      digit = c - string.byte('0',1)
+      if digit > 9 then
+        digit = 10 + bit32.band(c,0xdf) - string.byte('A', 1)
       end
       a[ai] = bit32.lshift(a[ai], 4) + digit
     end
   end
   -- /* Get # elided and shift what's after to the end */
-  cc=8-ai
-  for i=0, cc do
-    if ((8-i-cc) <= scc) then
-      a[7-i] = 0
+  cc=8-(ai-1)
+  for i=0, cc-1 do
+    if (8-i-cc) < scc then
+      a[8-i] = 0
     else
-      a[7-i] = a[8-i-cc]
-      a[8-i-cc]=0
+      a[8-i] = a[9-i-cc]
+      a[9-i-cc]=0
     end
   end
-  lladdr = string.format("fe80::%x:%x:%x:%x",bit32.band(a[1],0xfefd),a[2],a[3],a[7])
-  if (timestamp) then stamptime() end
+
+  lladdr = string.format("fe80::%x:%x:%x:%x",bit32.band(a[2],0xfefd),a[3],a[4],a[8])
+  if timestamp then stamptime() end
   ssystem("ifconfig %s add %s/64", tundev, lladdr)
   --  }
   --#endif /* link local */
@@ -711,22 +717,22 @@ function ifconf(tundev, ipaddr)
   --  } else {
   --    prefix = "64"
   --  }
-  --    if (timestamp) stamptime()
+  --    if timestamp stamptime()
   --    ssystem("ifconfig %s inet6 mtu %d up", tundev, devmtu)
-  --    if (timestamp) stamptime()
+  --    if (timestamp stamptime()
   --    ssystem("ifconfig %s inet6 %s add", tundev, ipaddr )
   --    if (timestamp) stamptime()
   --    ssystem("sysctl -w net.inet6.ip6.forwarding=1")
   --    free(itfaddr)
   --  }
   --#else
-  --  if (timestamp) stamptime()
-  --  ssystem("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu)
-  --  if (timestamp) stamptime()
-  --  ssystem("sysctl -w net.inet.ip.forwarding=1")
+  --if timestamp then stamptime() end
+  --ssystem(string.format("ifconfig %s inet `hostname` %s mtu %d up", tundev, ipaddr, devmtu))
+  --if timestamp then stamptime() end
+  --ssystem("sysctl -w net.inet.ip.forwarding=1")
   --#endif /* !linux */
 
-  if (timestamp) then stamptime() end
+  if timestamp then stamptime() end
   ssystem("ifconfig %s\n", tundev)
 end
 
@@ -766,13 +772,13 @@ function main(argv)
       baudrate = tonumber(optarg)
 
     elseif c == 'H' then
-      flowcontrol=1
+      flowcontrol=true
 
     elseif c == 'X' then
-      flowcontrol_xonxoff=1
+      flowcontrol_xonxoff=true
 
     elseif c == 'L' then
-      timestamp=1
+      timestamp=true
 
     elseif c == 'M' then
       devmtu=atoi(optarg)
@@ -781,7 +787,7 @@ function main(argv)
       end
 
     elseif c == 'P' then
-      showprogress=1
+      showprogress=true
 
     elseif c == 's' then
       if optarg:sub(1,5) == "/dev/" then
@@ -967,12 +973,11 @@ function main(argv)
   signal(posix.SIGALRM, sigalarm)
   ifconf(tundev, ipaddr)
 
-  print("end ifconf")
-
   while true do
-    print("loop")
     maxfd = 0
-    rset = 0
+    fds = {}
+    -- rset =  {}
+    -- wset =  {}
     --FD_ZERO(&rset)
     --FD_ZERO(&wset)
 
@@ -988,29 +993,41 @@ function main(argv)
 
     if(not slip_empty()) then --{    /* Anything to flush? */
       --FD_SET(slipfd, &wset)
+      fds[slipfd] = {events={OUT=true}}
     end
 
     --FD_SET(slipfd, &rset)  -- /* Read from slip ASAP! */
-    if(slipfd > maxfd) then maxfd = slipfd end
+    fds[slipfd] = {events={IN=true}}
+    --if(slipfd > maxfd) then maxfd = slipfd end
 
     --/* We only have one packet at a time queued for slip output. */
     if(slip_empty()) then
+      fds[tunfd] = {events={IN=true}}
       --FD_SET(tunfd, &rset)
-      if(tunfd > maxfd) then maxfd = tunfd end
+      --if(tunfd > maxfd) then maxfd = tunfd end
     end
 
-    --ret = select(maxfd + 1, &rset, &wset, nil, nil)
+    print("poll")
+    ret = poll(fds, -1) --maxfd + 1, &rset, &wset, nil, nil)
+    print("end poll")
+    print(ret)
     if(ret == -1 and errno ~= EINTR) then
-      err(1, "select")
+      err(1, "poll")
     elseif(ret > 0) then
       --if(FD_ISSET(slipfd, &rset)) then
       --  serial_to_tun(inslip, tunfd)
       --end
-
       --if(FD_ISSET(slipfd, &wset)) then
-      slip_flushbuf(slipfd)
       --  if(ipa_enable) then sigalarm_reset() end
       --end
+
+      if fds[slipfd].revents.IN then
+        serial_to_tun(inslip, tunfd)
+      end
+      if fds[slipfd].revents.OUT then
+        slip_flushbuf(slipfd)
+      end
+
 
       --/* Optional delay between outgoing packets */
       --/* Base delay times number of 6lowpan fragments to be sent */
@@ -1022,6 +1039,9 @@ function main(argv)
       end
       if delaymsec==0 then
         --if(slip_empty() && FD_ISSET(tunfd, &rset)) then
+        if slip_empty() and fds[tunfd].revents.IN then
+          serial_to_tun(inslip, tunfd)
+        end
         size=tun_to_serial(tunfd, slipfd)
         slip_flushbuf(slipfd)
         if(ipa_enable) then sigalarm_reset() end
