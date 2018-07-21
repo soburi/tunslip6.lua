@@ -32,7 +32,7 @@ getopt = require 'posix'.getopt
 errno = require 'posix'.errno
 open = require 'posix'.open
 fdopen = require 'posix.stdio'.fdopen
-signal = require 'posix'.signal
+signal = require 'posix.signal'
 
 tcflush = require 'posix'.tcflush
 tcgetattr = require 'posix'.tcgetattr
@@ -183,6 +183,10 @@ function serial_to_tun(inslip, outfd)
   -- static union {
   --   unsigned char inbuf[2000]
   --} uip
+  uip = { inbuf = {} }
+  for i=0, 2000 do
+    uip.inbuf[i] = '\0'
+  end
   inbufptr = 0
   ret = 0
   i = 0
@@ -500,6 +504,14 @@ function tun_to_serial(infd, outfd)
   return write_to_serial(outfd, uip.inbuf, size)
 end
 
+function cfmakeraw(tty)
+end
+
+function cfsetispeed(tty, speed)
+end
+function cfsetospeed(tty, speed)
+end
+
 function stty_telos(fd)
 
   if(tcflush(fd, posix.TCIOFLUSH) == -1) then err(1, "tcflush") end
@@ -507,7 +519,7 @@ function stty_telos(fd)
   tty = tcgetattr(fd)
   if tty == -1 then err(1, "tcgetattr") end
 
-  --cfmakeraw(&tty)
+  cfmakeraw(tty)
 
   -- /* Nonblocking read. */
   print("tty")
@@ -529,8 +541,8 @@ function stty_telos(fd)
   tty.cflag = bit32.band(tty.cflag, bit32.bnot(posix.HUPCL))
   tty.cflag = bit32.band(tty.cflag, bit32.bnot(posix.CLOCAL))
 
-  --cfsetispeed(&tty, speed)
-  --cfsetospeed(&tty, speed)
+  cfsetispeed(tty, speed)
+  cfsetospeed(tty, speed)
 
   if tcsetattr(fd, posix.TCSAFLUSH, tty) == -1 then err(1, "tcsetattr") end
 
@@ -781,7 +793,7 @@ function main(argv)
       timestamp=true
 
     elseif c == 'M' then
-      devmtu=atoi(optarg)
+      devmtu=tonumber(optarg)
       if(devmtu < MIN_DEVMTU) then
         devmtu = MIN_DEVMTU
       end
@@ -863,8 +875,6 @@ function main(argv)
   argc = argc - (last_index - 1)
   argv = pack(unpack(argv, last_index))
   
-  print(#argv)
-
   if #argv ~= 1 and #argv ~= 2 then
     err(1, "usage: %s [-B baudrate] [-H] [-L] [-s siodev] [-t tundev] [-T] [-v verbosity] [-d delay] [-a serveraddress] [-p serverport] ipaddress", prog)
   end
@@ -877,8 +887,6 @@ function main(argv)
     end
   end
 
-  print("host")
-  print(host)
   if host ~= nil then
     --struct addrinfo hints, *servinfo, *p
     --int rv
@@ -952,25 +960,21 @@ function main(argv)
     io.stderr:write(string.format("********SLIP started on ``/dev/%s''\n", siodev))
     stty_telos(slipfd)
   end
-  print(slipfd)
   slip_send(slipfd, SLIP_END)
   inslip = fdopen(slipfd, "r")
   if(inslip == nil) then err(1, "main: fdopen") end
 
-  print(tundev)
   tun = tun_alloc(tundev, tap)
-  print(tun)
   tunfd = tun:fileno()
-  print(tunfd)
   if(tunfd == -1) then err(1, "main: open /dev/tun") end
   if timestamp ~= 0 then stamptime() end
   io.stderr:write(string.format("opened %s device ``/dev/%s''\n", tap and "tap" or "tun", tundev))
 
   --? atexit(cleanup)
-  signal(posix.SIGHUP, sigcleanup)
-  signal(posix.SIGTERM, sigcleanup)
-  signal(posix.SIGINT, sigcleanup)
-  signal(posix.SIGALRM, sigalarm)
+  signal.signal(signal.SIGHUP, sigcleanup)
+  signal.signal(signal.SIGTERM, sigcleanup)
+  signal.signal(signal.SIGINT, sigcleanup)
+  signal.signal(signal.SIGALRM, sigalarm)
   ifconf(tundev, ipaddr)
 
   while true do
